@@ -67,16 +67,35 @@
   :group 'rse)
 
 
-(defun rse~prepend-mesa-dir (filename)
+(defun rse-prepend-mesa-dir (filename)
   "Prepend the MESA_DIR to a filename"
   (let ((mesa-dir (mesa-version-get-mesa-dir)))
     (concat (file-name-as-directory mesa-dir) filename)))
 
 
+(defun rse-mesa-version-at-least (version)
+  "Non-nil if the MESA version in MESA_DIR is at least VERSION."
+  (let* ((mesa-dir (mesa-version-get-mesa-dir))
+         (file (and mesa-dir (expand-file-name "data/version_number" mesa-dir))))
+    (when (and file (file-readable-p file))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (goto-char (point-min))
+        (and (looking-at "[ \t\n]*r?\\([0-9]+\\.[0-9]+\\.[0-9]+\\)")
+             (version<= version (match-string 1)))))))
+
+
+(defun rse-set-compile-command ()
+  (setq-local compile-command
+              (if (rse-mesa-version-at-least "26.4.1")
+                  "cd ../ && make clean && make"
+                "cd ../ && ./clean && ./mk")))
+
+
 (defun rse-enable ()
   "Enable run_star_extras.f by inserting the standard include file"
   (interactive)
-  (let ((filename (rse~prepend-mesa-dir "include/standard_run_star_extras.inc")))
+  (let ((filename (rse-prepend-mesa-dir "include/standard_run_star_extras.inc")))
     (if (file-exists-p filename)
         (save-excursion
           (beginning-of-buffer)
@@ -102,7 +121,7 @@
              ,@body))))))
 
 
-(defun rse~find-max-index-in-subroutine (subroutine thing-with-index)
+(defun rse-find-max-index-in-subroutine (subroutine thing-with-index)
   "Find the maximum index used in a subroutine named SUBROUTINE.
   THING-WITH-INDEX is a regexp whose first group is the index
   that you want to find the max."
@@ -118,32 +137,32 @@
   "^[^!]+names(\\([[:digit:]]+\\))"
   "Thing to look at to count extra columns")
 
-(defun rse~count-extra-columns (arg)
+(defun rse-count-extra-columns (arg)
   "Count in subroutine named data_for_extra_ARG_columns"
   (let ((subroutine-name (format "data_for_extra_%s_columns" arg)))
-    (rse~find-max-index-in-subroutine subroutine-name rse-thing-to-count)))
+    (rse-find-max-index-in-subroutine subroutine-name rse-thing-to-count)))
 
-(defun rse~update-integer-variable (variable new-val)
+(defun rse-update-integer-variable (variable new-val)
   (save-excursion
     (goto-char (point-min))
     (while (re-search-forward (format "%s[ \t]*=[ \t]*\\([[:digit:]]+\\)" variable) (point-max) t)
       (unless (string= "" (match-string 1))
         (replace-match (number-to-string new-val) nil nil nil 1)))))
 
-(defun rse~update-how-many-extra-columns (arg)
+(defun rse-update-how-many-extra-columns (arg)
   "Update variable how_many_extra_ARG_columns"
   (let ((variable-name (format "how_many_extra_%s_columns" arg))
-        (how-many (rse~count-extra-columns arg)))
-    (rse~update-integer-variable variable-name how-many)))
+        (how-many (rse-count-extra-columns arg)))
+    (rse-update-integer-variable variable-name how-many)))
 
 (defun rse-before-save-hook ()
   (when rse-update-extra-column-counts
     (let ((rse-file-type (file-name-nondirectory (buffer-file-name))))
       (when (string-match-p "\\`run_star_extras\\.f\\(90\\)?\\'" rse-file-type)
-        (rse~update-how-many-extra-columns "history")
-        (rse~update-how-many-extra-columns "profile"))
+        (rse-update-how-many-extra-columns "history")
+        (rse-update-how-many-extra-columns "profile"))
       (when (string-match-p "\\`run_binary_extras\\.f\\(90\\)?\\'" rse-file-type)
-        (rse~update-how-many-extra-columns "binary_history")))))
+        (rse-update-how-many-extra-columns "binary_history")))))
 
 (defun rse-compile-with-enviroment ()
   "Compile in an enviroment where MESA_DIR is from mesa-version"
@@ -178,16 +197,18 @@
         ;; add hooks
         (add-hook 'before-save-hook 'rse-before-save-hook nil t)
         (add-hook 'after-save-hook 'rse-after-save-hook nil t)
+        (add-hook 'mesa-version-change-hook 'rse-set-compile-command nil t)
 
         ;; set the compile command
         (setq-local compilation-read-command nil)
-        (setq-local compile-command "cd ../ && ./clean && ./mk"))
+        (rse-set-compile-command))
 
   ;; turn run-star-extras-minor-mode off
     (progn
       (remove-hook 'before-save-hook 'rse-before-save-hook t)
-      (remove-hook 'after-save-hook 'rse-after-save-hook t)))
-  
+      (remove-hook 'after-save-hook 'rse-after-save-hook t)
+      (remove-hook 'mesa-version-change-hook 'rse-set-compile-command t)))
+
   ;; the group
   :group 'rse)
 
