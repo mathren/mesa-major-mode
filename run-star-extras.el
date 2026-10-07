@@ -41,7 +41,7 @@
 
 
 (defconst rse-include-line
-  "      include 'standard_run_star_extras.inc'"
+  "^[ \t]*include[ \t]+['\"]standard_run_star_extras\\.inc['\"]"
   "Line in run_star_extras.f that pulls in default code.")
 
 
@@ -80,7 +80,7 @@
     (if (file-exists-p filename)
         (save-excursion
           (beginning-of-buffer)
-          (if (search-forward rse-include-line nil nil)
+          (if (re-search-forward rse-include-line nil t)
               (save-restriction
                 (narrow-to-region (line-beginning-position) (line-end-position))
                 (insert-file-contents filename nil nil nil t))))
@@ -89,12 +89,12 @@
 
 (defmacro narrow-to-subroutine (subroutine &rest body)
   "Execute BODY in a region narrowed to SUBROUTINE"
-  `(let ((beg-pattern (format "subroutine %s" subroutine))
-         (end-pattern (format "end subroutine %s" subroutine)))
+  `(let ((beg-pattern (format "subroutine[ \t]+%s\\_>" (regexp-quote ,subroutine)))
+         (end-pattern (format "end[ \t]*subroutine[ \t]+%s\\_>" (regexp-quote ,subroutine))))
      (save-excursion
        (goto-char (point-min))
-       (let* ((point-beg (search-forward beg-pattern nil t))
-              (point-end (search-forward end-pattern nil t)))
+       (let* ((point-beg (re-search-forward beg-pattern nil t))
+              (point-end (re-search-forward end-pattern nil t)))
          (when (and (and point-beg point-end) (> point-end point-beg))
            (save-restriction
              (narrow-to-region point-beg point-end)
@@ -126,7 +126,7 @@
 (defun rse~update-integer-variable (variable new-val)
   (save-excursion
     (goto-char (point-min))
-    (while (re-search-forward (format "%s = \\([[:digit:]]+\\)" variable) (point-max) t)
+    (while (re-search-forward (format "%s[ \t]*=[ \t]*\\([[:digit:]]+\\)" variable) (point-max) t)
       (unless (string= "" (match-string 1))
         (replace-match (number-to-string new-val) nil nil nil 1)))))
 
@@ -139,10 +139,10 @@
 (defun rse-before-save-hook ()
   (when rse-update-extra-column-counts
     (let ((rse-file-type (file-name-nondirectory (buffer-file-name))))
-      (when (string= "run_star_extras.f" rse-file-type)
+      (when (string-match-p "\\`run_star_extras\\.f\\(90\\)?\\'" rse-file-type)
         (rse~update-how-many-extra-columns "history")
         (rse~update-how-many-extra-columns "profile"))
-      (when (string= "run_binary_extras.f" rse-file-type)
+      (when (string-match-p "\\`run_binary_extras\\.f\\(90\\)?\\'" rse-file-type)
         (rse~update-how-many-extra-columns "binary_history")))))
 
 (defun rse-compile-with-enviroment ()
